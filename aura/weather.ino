@@ -27,7 +27,7 @@
 #define UPDATE_INTERVAL 600000UL  // 10 minutes
 
 // Night mode starts at 10pm and ends at 6am
-#define NIGHT_MODE_START_HOUR 22
+#define NIGHT_MODE_START_HOUR 20
 #define NIGHT_MODE_END_HOUR 6
 
 LV_FONT_DECLARE(lv_font_montserrat_latin_12);
@@ -69,6 +69,7 @@ static Preferences prefs;
 static bool use_fahrenheit = false;
 static bool use_24_hour = false; 
 static bool use_night_mode = false;
+static uint32_t night_mode_brightness = 16;
 static char latitude[16] = LATITUDE_DEFAULT;
 static char longitude[16] = LONGITUDE_DEFAULT;
 static String location = String(LOCATION_DEFAULT);
@@ -107,6 +108,8 @@ static lv_obj_t *location_win = nullptr;
 static lv_obj_t *unit_switch;
 static lv_obj_t *clock_24hr_switch;
 static lv_obj_t *night_mode_switch;
+static lv_obj_t *lbl_night_brightness = nullptr;
+static lv_obj_t *night_brightness_slider = nullptr;
 static lv_obj_t *language_dropdown;
 static lv_obj_t *lbl_clock;
 
@@ -340,6 +343,7 @@ void setup() {
   use_fahrenheit = prefs.getBool("useFahrenheit", false);
   location = prefs.getString("location", LOCATION_DEFAULT);
   use_night_mode = prefs.getBool("useNightMode", false);
+  night_mode_brightness = prefs.getUInt("nightModeBrightness", 16);
   uint32_t brightness = prefs.getUInt("brightness", 255);
   use_24_hour = prefs.getBool("use24Hour", false);
   current_language = (Language)prefs.getUInt("language", LANG_EN);
@@ -726,20 +730,20 @@ void create_location_dialog() {
 void create_settings_window() {
   if (settings_win) return;
 
-  int vertical_element_spacing = 21;
+  int vertical_element_spacing = 18;
 
   const LocalizedStrings* strings = get_strings(current_language);
   settings_win = lv_win_create(lv_scr_act());
 
   lv_obj_t *header = lv_win_get_header(settings_win);
-  lv_obj_set_style_height(header, 30, 0);
+  lv_obj_set_style_height(header, 28, 0);
 
   lv_obj_t *title = lv_win_add_title(settings_win, strings->aura_settings);
   lv_obj_set_style_text_font(title, get_font_16(), 0);
   lv_obj_set_style_margin_left(title, 10, 0);
 
   lv_obj_center(settings_win);
-  lv_obj_set_width(settings_win, 240);
+  lv_obj_set_size(settings_win, 240, 320);
 
   lv_obj_t *cont = lv_win_get_content(settings_win);
 
@@ -747,12 +751,12 @@ void create_settings_window() {
   lv_obj_t *lbl_b = lv_label_create(cont);
   lv_label_set_text(lbl_b, strings->brightness);
   lv_obj_set_style_text_font(lbl_b, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align(lbl_b, LV_ALIGN_TOP_LEFT, 0, 5);
+  lv_obj_align(lbl_b, LV_ALIGN_TOP_LEFT, 0, 2);
   lv_obj_t *slider = lv_slider_create(cont);
   lv_slider_set_range(slider, 1, 255);
   uint32_t saved_b = prefs.getUInt("brightness", 128);
   lv_slider_set_value(slider, saved_b, LV_ANIM_OFF);
-  lv_obj_set_width(slider, 100);
+  lv_obj_set_width(slider, 90);
   lv_obj_align_to(slider, lbl_b, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
   lv_obj_add_event_cb(slider, [](lv_event_t *e){
@@ -777,11 +781,36 @@ void create_settings_window() {
   }
   lv_obj_add_event_cb(night_mode_switch, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
 
+  // Night mode brightness slider (only visible when night mode is enabled)
+  lbl_night_brightness = lv_label_create(cont);
+  lv_label_set_text(lbl_night_brightness, strings->night_mode_brightness);
+  lv_obj_set_style_text_font(lbl_night_brightness, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_night_brightness, lbl_night_mode, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  night_brightness_slider = lv_slider_create(cont);
+  lv_slider_set_range(night_brightness_slider, 0, 45);
+  lv_slider_set_value(night_brightness_slider, night_mode_brightness, LV_ANIM_OFF);
+  lv_obj_set_width(night_brightness_slider, 90);
+  lv_obj_align_to(night_brightness_slider, lbl_night_brightness, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+  // Hide night brightness controls if night mode is disabled
+  if (!use_night_mode) {
+    lv_obj_add_flag(lbl_night_brightness, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(night_brightness_slider, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  lv_obj_add_event_cb(night_brightness_slider, [](lv_event_t *e){
+    lv_obj_t *s = (lv_obj_t*)lv_event_get_target(e);
+    uint32_t v = lv_slider_get_value(s);
+    night_mode_brightness = v;
+    prefs.putUInt("nightModeBrightness", night_mode_brightness);
+  }, LV_EVENT_VALUE_CHANGED, NULL);
+
   // 'Use F' switch
   lv_obj_t *lbl_u = lv_label_create(cont);
   lv_label_set_text(lbl_u, strings->use_fahrenheit);
   lv_obj_set_style_text_font(lbl_u, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align_to(lbl_u, lbl_night_mode, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+  lv_obj_align_to(lbl_u, lbl_night_brightness, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
 
   unit_switch = lv_switch_create(cont);
   lv_obj_align_to(unit_switch, lbl_u, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
@@ -827,7 +856,7 @@ void create_settings_window() {
   language_dropdown = lv_dropdown_create(cont);
   lv_dropdown_set_options(language_dropdown, "English\nEspañol\nDeutsch\nFrançais\nTürkçe\nSvenska\nItaliano");
   lv_dropdown_set_selected(language_dropdown, current_language);
-  lv_obj_set_width(language_dropdown, 120);
+  lv_obj_set_width(language_dropdown, 110);
   lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_SELECTED | LV_STATE_DEFAULT);
   lv_obj_t *list = lv_dropdown_get_list(language_dropdown);
@@ -839,7 +868,7 @@ void create_settings_window() {
   lv_obj_t *btn_change_loc = lv_btn_create(cont);
   lv_obj_align_to(btn_change_loc, lbl_lang, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
 
-  lv_obj_set_size(btn_change_loc, 100, 40);
+  lv_obj_set_size(btn_change_loc, 90, 35);
   lv_obj_add_event_cb(btn_change_loc, change_location_event_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_t *lbl_chg = lv_label_create(btn_change_loc);
   lv_label_set_text(lbl_chg, strings->location_btn);
@@ -860,8 +889,8 @@ void create_settings_window() {
   lv_obj_set_style_bg_color(btn_reset, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(btn_reset, lv_palette_darken(LV_PALETTE_RED, 1), LV_PART_MAIN | LV_STATE_PRESSED);
   lv_obj_set_style_text_color(btn_reset, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_size(btn_reset, 100, 40);
-  lv_obj_align_to(btn_reset, btn_change_loc, LV_ALIGN_OUT_RIGHT_MID, 12, 0);
+  lv_obj_set_size(btn_reset, 90, 35);
+  lv_obj_align_to(btn_reset, btn_change_loc, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
   lv_obj_add_event_cb(btn_reset, reset_wifi_event_handler, LV_EVENT_CLICKED, nullptr);
 
@@ -872,7 +901,7 @@ void create_settings_window() {
 
   // Close Settings button
   btn_close_obj = lv_btn_create(cont);
-  lv_obj_set_size(btn_close_obj, 80, 40);
+  lv_obj_set_size(btn_close_obj, 75, 35);
   lv_obj_align(btn_close_obj, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
   lv_obj_add_event_cb(btn_close_obj, settings_event_handler, LV_EVENT_CLICKED, NULL);
 
@@ -897,6 +926,15 @@ static void settings_event_handler(lv_event_t *e) {
 
   if (tgt == night_mode_switch && code == LV_EVENT_VALUE_CHANGED) {
     use_night_mode = lv_obj_has_state(night_mode_switch, LV_STATE_CHECKED);
+    
+    // Show/hide night mode brightness controls
+    if (use_night_mode) {
+      lv_obj_clear_flag(lbl_night_brightness, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(night_brightness_slider, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(lbl_night_brightness, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(night_brightness_slider, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 
   if (tgt == language_dropdown && code == LV_EVENT_VALUE_CHANGED) {
@@ -909,6 +947,7 @@ static void settings_event_handler(lv_event_t *e) {
     prefs.putBool("useFahrenheit", use_fahrenheit);
     prefs.putBool("use24Hour", use_24_hour);
     prefs.putBool("useNightMode", use_night_mode);
+    prefs.putUInt("nightModeBrightness", night_mode_brightness);
     prefs.putUInt("language", current_language);
 
     lv_keyboard_set_textarea(kb, nullptr);
@@ -925,6 +964,7 @@ static void settings_event_handler(lv_event_t *e) {
     prefs.putBool("useFahrenheit", use_fahrenheit);
     prefs.putBool("use24Hour", use_24_hour);
     prefs.putBool("useNightMode", use_night_mode);
+    prefs.putUInt("nightModeBrightness", night_mode_brightness);
     prefs.putUInt("language", current_language);
 
     lv_keyboard_set_textarea(kb, nullptr);
@@ -949,7 +989,7 @@ bool night_mode_should_be_active() {
 }
 
 void activate_night_mode() {
-  analogWrite(LCD_BACKLIGHT_PIN, 0);
+  analogWrite(LCD_BACKLIGHT_PIN, night_mode_brightness);
   night_mode_active = true;
 }
 
