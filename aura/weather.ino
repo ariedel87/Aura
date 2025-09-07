@@ -26,9 +26,10 @@
 #define DEFAULT_CAPTIVE_SSID "Aura"
 #define UPDATE_INTERVAL 600000UL  // 10 minutes
 
-// Night mode starts at 10pm and ends at 6am
-#define NIGHT_MODE_START_HOUR 20
-#define NIGHT_MODE_END_HOUR 6
+// Night mode variables for sunrise/sunset
+static String sunrise_time = "";
+static String sunset_time = "";
+static bool sunrise_sunset_available = false;
 
 LV_FONT_DECLARE(lv_font_montserrat_latin_12);
 LV_FONT_DECLARE(lv_font_montserrat_latin_14);
@@ -183,6 +184,8 @@ void activate_night_mode();
 void deactivate_night_mode();
 void check_for_night_mode();
 void handle_temp_screen_wakeup_timeout(lv_timer_t *timer);
+int time_to_minutes(const String &time_str);
+bool is_night_time();
 
 
 int day_of_week(int y, int m, int d) {
@@ -977,15 +980,46 @@ static void settings_event_handler(lv_event_t *e) {
   }
 }
 
-// Screen dimming functions implementation
-bool night_mode_should_be_active() {
+// Helper function to convert time string (HH:MM) to minutes since midnight
+int time_to_minutes(const String &time_str) {
+  if (time_str.length() < 5) return -1;
+  
+  int hour = time_str.substring(0, 2).toInt();
+  int minute = time_str.substring(3, 5).toInt();
+  
+  return hour * 60 + minute;
+}
+
+// Check if it's night time based on sunrise/sunset
+bool is_night_time() {
+  if (!sunrise_sunset_available) {
+    // Fallback to hours if sunrise/sunset data unavailable
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) return false;
+    int hour = timeinfo.tm_hour;
+    return (hour >= 20 || hour < 6); // 8pm to 6am fallback
+  }
+  
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) return false;
-
-  if (!use_night_mode) return false;
   
-  int hour = timeinfo.tm_hour;
-  return (hour >= NIGHT_MODE_START_HOUR || hour < NIGHT_MODE_END_HOUR);
+  int current_minutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  int sunrise_minutes = time_to_minutes(sunrise_time);
+  int sunset_minutes = time_to_minutes(sunset_time);
+  
+  if (sunrise_minutes == -1 || sunset_minutes == -1) {
+    // Fallback if time parsing failed
+    int hour = timeinfo.tm_hour;
+    return (hour >= 20 || hour < 6);
+  }
+  
+  // Night time is after sunset or before sunrise
+  return (current_minutes >= sunset_minutes || current_minutes < sunrise_minutes);
+}
+
+bool night_mode_should_be_active() {
+  if (!use_night_mode) return false;
+  return is_night_time();
 }
 
 void activate_night_mode() {
@@ -1062,7 +1096,7 @@ void fetch_and_update_weather() {
   String url = String("http://api.open-meteo.com/v1/forecast?latitude=")
                + latitude + "&longitude=" + longitude
                + "&current=temperature_2m,apparent_temperature,is_day,weather_code"
-               + "&daily=temperature_2m_min,temperature_2m_max,weather_code"
+               + "&daily=temperature_2m_min,temperature_2m_max,weather_code,sunrise,sunset"
                + "&hourly=temperature_2m,precipitation_probability,is_day,weather_code"
                + "&forecast_hours=7"
                + "&timezone=auto";
@@ -1102,6 +1136,22 @@ void fetch_and_update_weather() {
       JsonArray tmin = doc["daily"]["temperature_2m_min"].as<JsonArray>();
       JsonArray tmax = doc["daily"]["temperature_2m_max"].as<JsonArray>();
       JsonArray weather_codes = doc["daily"]["weather_code"].as<JsonArray>();
+      JsonArray sunrise_times = doc["daily"]["sunrise"].as<JsonArray>();
+      JsonArray sunset_times = doc["daily"]["sunset"].as<JsonArray>();
+
+      // Extract today's sunrise and sunset times
+      if (sunrise_times.size() > 0 && sunset_times.size() > 0) {
+        String sunrise_full = sunrise_times[0].as<String>();
+        String sunset_full = sunset_times[0].as<String>();
+        
+        int t_index = sunrise_full.indexOf('T');
+        if (t_index != -1) {
+          sunrise_time = sunrise_full.substring(t_index + 1, t_index + 6);
+          sunset_time = sunset_full.substring(t_index + 1, t_index + 6);
+          sunrise_sunset_available = true;
+          Serial.println("Sunrise: " + sunrise_time + ", Sunset: " + sunset_time);
+        }
+      }
 
       for (int i = 0; i < 7; i++) {
         const char *date = times[i];
